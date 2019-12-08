@@ -1,6 +1,6 @@
 import random
 import math
-import numpy as np
+from onehot import *
 
 cost_per_offload = 1
 
@@ -41,7 +41,7 @@ class ENV:
 
         distance_map = np.copy(net_map)
         for i in node_list:
-            for j in range(i + 1, node_list[-1]):
+            for j in range(i + 1, node_list[-1] + 1):
                 if distance_map[i, j] == 1:
                     distance_map[i, j] = random.randint(20, 50)
                     distance_map[j, i] = distance_map[i, j]
@@ -74,8 +74,10 @@ class ENV:
         task_['data_amount'] = observation[2]
         task_['rest_delay'] = observation[3]
         task_['profit_ratio'] = observation[4]
+        task_['des_node'] = observation[55:65]
+        des_node = one_hot_decode(task_['des_node']) + 40
 
-        node_ = int(observation[5])
+        node_ = one_hot_decode(observation[5:55])
         # net_state = observation[4:]
 
         # 更新下一跳的任务信息
@@ -110,7 +112,10 @@ class ENV:
                 next_node_net_state.append(self.net_states[n])
             else:
                 next_node_net_state.append(-1)  # next observation net_state
-        next_observation = [computation_remain, task_['total_cpt'], L_, delay_, task_['profit_ratio'], action]
+        next_observation = [computation_remain, task_['total_cpt'], L_, delay_, task_['profit_ratio']]
+        action_OHT = one_hot_code(len(self.node_list), action)
+        next_observation.extend(action_OHT)
+        next_observation.extend(task_['des_node'])
         next_observation.extend(next_node_net_state)
         next_observation = np.array(next_observation)
         # 路由代价
@@ -119,7 +124,7 @@ class ENV:
         # 计算卸载代价
         reward = reward - cost_offload
 
-        if action == self.node_list[-1]:
+        if action == des_node:
             if computation_remain == 0:
                 reward = reward + 50000
             else:
