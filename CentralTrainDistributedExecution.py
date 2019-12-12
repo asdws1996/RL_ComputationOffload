@@ -5,17 +5,18 @@ from evaluation import *
 from math import ceil
 import matplotlib.pyplot as plt
 from onehot import *
+import time
 
-iterations = 10000
-change_rounds = 10
-delta = 1
+iterations = 100000
+change_rounds = 5
+delta = 1.05
 NODE_NUM = 50
-n_features = NODE_NUM * 2 + 15
+n_features = NODE_NUM * 3 + 15
 n_action = NODE_NUM
 NODE_CPT_SCALE = (20, 30)
-TASK_CPT_SCALE = (50, 100)
+TASK_CPT_SCALE = (100, 150)
 DATA_LEN_SCALE = (1000, 2000)
-CPT_SWING_RANGE = 3
+CPT_SWING_RANGE = 10
 node_list = range(NODE_NUM)
 # task = (rest computation, total computation)
 
@@ -32,7 +33,7 @@ def create_taskpool(TASK_NUM):
                         tmp_task[0]/1                                               # 计算时延的最低要求
                         + (tmp_task[0] * tmp_task[1]) / (NODE_CPT_SCALE[0] * 20)    # 传输时延的最低要求
                         + tmp_task[0] * 50 / NODE_CPT_SCALE[0])                     # 传播时延的最低要求
-                        ) * 1.5)          # task[2] : 任务时延要求（卸载时延 + 传输时延 + 传播时延）
+                        ) * 2)          # task[2] : 任务时延要求（卸载时延 + 传输时延 + 传播时延）
         tmp_task.append(round(np.random.random()*0.7, 4))              # task[3] :  随机产生一个收益率λ
         des_node = np.random.randint(node_list[-10], node_list[-1]+1)
         src_node = np.random.randint(node_list[0], node_list[9]+1)
@@ -73,16 +74,18 @@ def create_topology(Node_Num=NODE_NUM, edge_prob=0.15):
 def _init_env():
     net_map = create_topology()
     # 创建环境对象
-    env = ENV(node_list, net_map, NODE_CPT_SCALE, CPT_SWING_RANGE, delta)
+    destination = [i for i in range(40, 50)]
+    env = ENV(node_list, net_map, NODE_CPT_SCALE, CPT_SWING_RANGE, delta, destination)
     # 创建任务池
-    task_list = create_taskpool(TASK_NUM=50)
+    task_list = create_taskpool(TASK_NUM=200)
+    test_task_list = create_taskpool(TASK_NUM=50)
 
-    return net_map, env, task_list
+    return net_map, env, task_list, test_task_list
 
 
-def train():
+def train(segment=False):
     # 环境初始化
-    net_map, env, task_list = _init_env()
+    net_map, env, task_list, test_task_list = _init_env()
 
     # NET_STATES = np.array([random.randint(1, 3) for _ in node_list])
     # 创建邻接节点的list
@@ -122,39 +125,64 @@ def train():
         des_node = task[4]['des_node']
         des_node_OHT = one_hot_code(10, des_node-40)
         initial_observation.extend(des_node_OHT)
+        tmp_dis = env.d_distance_list[des_node-40]
+        tmp_path = env.path_list[des_node-40]
 
         initial_states = []
         for node in node_list:
-            if net_map[0][node] == 0:
+            if net_map[src_node][node] == 0:
                 initial_states.append(-1)
             else:
                 initial_states.append(env.net_states[node])
         initial_observation.extend(initial_states)
+
+        initial_dis = []
+        for node in node_list:
+            if net_map[src_node][node] == 0:
+                initial_dis.append(-1)
+            else:
+                initial_dis.append(tmp_dis[node])
+        initial_observation.extend(initial_dis)
+
         observation = np.array(initial_observation)
         # Tabu = []
         while True:
-            if time_counter % change_rounds == 0:
-                netUpdateFlag = True
-            # try process
-            present_node = one_hot_decode(observation[5:5+NODE_NUM])
+            present_node = one_hot_decode(observation[5:5 + NODE_NUM])
+            if segment:
+                if observation[0] > 0:
+                    if time_counter % change_rounds == 0:
+                        netUpdateFlag = True
+                    # try process
 
-            # 确定该节点的有效邻接节点
-            actions_limit = np.array(neighbors_list[present_node])
-            # # 在邻接节点中去除已经走过的节点
-            # Tabu.append(present_node)
-            # tmp_actions_limit = []
-            # for act in actions_limit:
-            #     if act not in Tabu:
-            #         tmp_actions_limit.append(act)
-            #
-            # # 如果无路可走就结束回合
-            # if tmp_actions_limit:
-            #     actions_limit = np.array(tmp_actions_limit)
-            # else:
-            #     break
+                    # 确定该节点的有效邻接节点
+                    actions_limit = np.array(neighbors_list[present_node])
+                    # # 在邻接节点中去除已经走过的节点
+                    # Tabu.append(present_node)
+                    # tmp_actions_limit = []
+                    # for act in actions_limit:
+                    #     if act not in Tabu:
+                    #         tmp_actions_limit.append(act)
+                    #
+                    # # 如果无路可走就结束回合
+                    # if tmp_actions_limit:
+                    #     actions_limit = np.array(tmp_actions_limit)
+                    # else:
+                    #     break
 
-            action = agent.DQN.choose_action(observation, actions_limit)
-            result = env.perceive(observation, action, netUpdateFlag)                              # result = [r,s']
+                    action = agent.DQN.choose_action(observation, actions_limit)
+                else:
+                    action = tmp_path[present_node]
+
+            else:
+                if time_counter % change_rounds == 0:
+                    netUpdateFlag = True
+                # try process
+                present_node = one_hot_decode(observation[5:5 + NODE_NUM])
+
+                # 确定该节点的有效邻接节点
+                actions_limit = np.array(neighbors_list[present_node])
+                action = agent.DQN.choose_action(observation, actions_limit)
+            result = env.perceive(observation, action, netUpdateFlag)  # result = [r,s']
             netUpdateFlag = False
             agent.DQN.store_transition(observation, action, result[0], result[1])
             # print(result[0])
@@ -177,7 +205,8 @@ def train():
             agent.DQN.learn(neighbors_list)
 
         if i >= 500 and i % 100 == 0:
-            res_cost, res_counter, res_valid_ration = evaluation(agent, env, task_list, neighbors_list, change_rounds)
+            res_cost, res_counter, res_valid_ration = evaluation(agent, env, test_task_list, neighbors_list, change_rounds,
+                                                                 segment=False)
             with open('record.txt', 'a+') as fp:
                 fp.write('%d\t\t%f\t\t%f\t\t%f\n' % (i, res_cost, res_counter, res_valid_ration))
             evaluation_his.append([res_cost, res_counter, res_valid_ration])
@@ -216,4 +245,7 @@ def train():
 
 
 if __name__ == '__main__':
+    t1 = time.time()
     train()
+    t2 = time.time()
+    print("Time : %5f" % (t2 - t1))
