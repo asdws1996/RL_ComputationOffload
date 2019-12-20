@@ -131,6 +131,7 @@ class DeepQNetwork:
             memory_size=500,
             batch_size=64,
             e_greedy_increment=0.005,
+            TAU=0.01,
             output_graph=False,
             prioritized=False
     ):
@@ -164,6 +165,7 @@ class DeepQNetwork:
         t_params = tf.get_collection('target_net_params')
         e_params = tf.get_collection('eval_net_params')
         self.replace_target_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
+        self.soft_replace = [tf.assign(t, (1 - TAU) * t + TAU * e) for t, e in zip(t_params, e_params)]
 
         self.sess = tf.Session()
 
@@ -174,7 +176,7 @@ class DeepQNetwork:
 
         self.sess.run(tf.global_variables_initializer())
         self.cost_his = []
-        self.saver = tf.train.Saver(max_to_keep=1)
+        self.saver = tf.train.Saver(max_to_keep=5)
 
     def _build_net(self):
         tf.reset_default_graph()
@@ -269,9 +271,10 @@ class DeepQNetwork:
         return int(action)
 
     def learn(self, neighbor_list):
-        if self.learn_step_counter % self.replace_target_iter == 0:
-            self.sess.run(self.replace_target_op)
-            print('\ntarget_params_replaced\n')
+        # if self.learn_step_counter % self.replace_target_iter == 0:
+        #     self.sess.run(self.replace_target_op)
+        #     print('\ntarget_params_replaced\n')
+        self.sess.run(self.soft_replace)
         if self.prioritized:
             tree_idx, batch_memory, ISWeights = self.memory.sample(self.batch_size)
             # sample batch memory from all memory
@@ -318,8 +321,8 @@ class DeepQNetwork:
             q_next_max = np.zeros(1)  # 初始化
             for i in range(q_next.shape[0]):
                 observation_ = batch_memory[i, -self.n_features:]  # 取出下一个状态
-                node_num = one_hot_decode(observation_[5:55])
-                observation_DN = int(np.argwhere(observation_[55:65] == 1))  # 判断下个状态是否抵达终点
+                node_num = one_hot_decode(observation_[4:54])
+                observation_DN = int(np.argwhere(observation_[54:64] == 1))  # 判断下个状态是否抵达终点
                 if node_num == observation_DN:
                     tmp_max = 0
                 else:
@@ -408,21 +411,17 @@ class DeepQNetwork:
 
         return batch_memory
 
-    def saveModel(self, node_No, step):
+    def saveModel(self, step):
         #  保存模型路径
-        ckpt_file_path = "./models/DQN" + '[' + str(node_No) + ']'
+        ckpt_file_path = "./models/DQN.ckpt"
         path = os.path.dirname(os.path.abspath(ckpt_file_path))
+
         if os.path.isdir(path) is False:
             os.makedirs(path)
+        self.saver.save(self.sess, ckpt_file_path, global_step=step)
 
-        tmp_path = ckpt_file_path
-        self.saver.save(self.sess, tmp_path, global_step=step)
+    def loadModel(self):
+        ckpt_file_path = "./models/"
+        ckpt_path = tf.train.latest_checkpoint(ckpt_file_path)
+        self.saver.restore(self.sess, ckpt_path)
 
-    def loadModel(self, node_No):
-        ckpt_file_path = "./models/DQN" + '[' + str(node_No) + ']'
-        ckpt = tf.train.get_checkpoint_state(ckpt_file_path)
-
-        if ckpt and ckpt.model_checkpoint_path:
-            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-        else:
-            pass
