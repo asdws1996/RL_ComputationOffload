@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+
 import tensorflow as tf
 import os
 from onehot import *
@@ -251,23 +251,23 @@ class DeepQNetwork:
     def choose_action(self, observation, actions_limit, isEval=False):
         # to have batch dimension when feed into tf placeholder
         observation = observation[np.newaxis, :]  # shape=(1,n_features)
-
+        actions_value = self.sess.run(self.q_eval, feed_dict={self.s: observation})[0]
+        # 选择下一跳路由；
         if isEval:
-            actions_value = self.sess.run(self.q_eval, feed_dict={self.s: observation})
-            actions_validate = np.array([actions_value[0][index] for index in actions_limit])
+            actions_validate = np.array([actions_value[index] for index in actions_limit])
             max_value = np.max(actions_validate)  # 未加axis＝,返回一个索引数值
-            action = np.argwhere(actions_value[0] == max_value)[0]
+            action = np.argwhere(actions_value == max_value)[0]
 
         else:
             if np.random.uniform() < self.epsilon:
                 # forward feed the observation and get q value for every actions
-                actions_value = self.sess.run(self.q_eval, feed_dict={self.s: observation})
-                actions_validate = np.array([actions_value[0][index] for index in actions_limit])
+                actions_validate = np.array([actions_value[index] for index in actions_limit])
                 max_value = np.max(actions_validate)  # 未加axis＝,返回一个索引数值
-                action = np.argwhere(actions_value[0] == max_value)[0]
+                action = np.argwhere(actions_value == max_value)[0]
             else:
                 action = np.random.choice(actions_limit, size=1)
                 # action = np.random.randint(0, self.n_actions)
+        time_ex = (actions_value[-1] / 100) if actions_value[-1] > 0 else 0
         return int(action)
 
     def learn(self, neighbor_list):

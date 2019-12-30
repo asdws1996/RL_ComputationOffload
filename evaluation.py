@@ -9,6 +9,7 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
     cost_his = []
     counter_his = []
     latency_his = []
+    ec_his = []
     time_counter = 1
     trajcentory = []
     updateFlag = False
@@ -20,6 +21,7 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
         cost = 0
         counter = 0
         delay = 0
+        ec = 0
         # task initialization
         observation = _init_observation(task, environment)
         des_node = task[3]['des_node']
@@ -29,10 +31,10 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
 
         while True:
             present_node = one_hot_decode(observation[4:54])
-            actions_limit = neighbors_list[present_node]
-            actions_limit = [each for each in neighbors_list[present_node]]
-            actions_limit.append(len(node_list))
-            actions_limit = np.array(actions_limit)
+            # actions_limit = neighbors_list[present_node]
+            # actions_limit = [each for each in neighbors_list[present_node]]
+            # actions_limit.append(len(node_list))
+            # actions_limit = np.array(actions_limit)
             if segment:
                 if observation[0] > 0:
                     if time_counter % change_rounds == 0:
@@ -41,7 +43,7 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
                     # 存储路径
                     tmp_traj.append(present_node)
 
-                    action = agent.DQN.choose_action(observation, actions_limit, isEval=False)
+                    action = agent.choose_action(observation)
                 else:
                     action = tmp_path[present_node]
             else:
@@ -51,19 +53,19 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
                 present_node = one_hot_decode(observation[4:54])
 
                 # 确定该节点的有效邻接节点
+                action = agent.choose_action(observation)
+            #
+            # if action > max(environment.node_list):
+            #     delay_ = 1
+            # else:
+            #     delay_ = observation[2] / environment.trans_v[present_node]
+            #     counter = counter + 1
 
-                action = agent.DQN.choose_action(observation, actions_limit)
-
-            if action > max(environment.node_list):
-                delay_ = 1
-            else:
-                delay_ = observation[2] / environment.trans_v[present_node]
-                counter = counter + 1
-            result = environment.perceive(observation, action, updateFlag)  # result = [r,s']
-
+            result, ec_, delay_ = environment.perceive(observation, action, updateFlag)  # result = [r,s']
+            ec += ec_
+            delay += delay_
             updateFlag = False
             cost += result[0]
-            delay += delay_
             time_counter += 1
 
             observation = result[1]
@@ -73,6 +75,7 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
                     tmp_traj.append(nn)
                     cost_his.append(cost)
                     latency_his.append(delay)
+                    ec_his.append(ec)
                 break
 
         trajcentory.append(tmp_traj)
@@ -81,11 +84,14 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
 
     cost_his = np.array(cost_his)
     res_cost = np.mean(cost_his-50000)
+
     latency_his = np.array(latency_his)
     res_latency = np.mean(latency_his)
 
     counter_his = np.array(counter_his)
     res_counter = np.mean(counter_his)
     # res_valid_ratio = valid_eps / len(tasks) * 100
+    ec_his = np.array(ec_his)
+    res_ec = np.mean(ec_his)
 
-    return res_cost, res_counter, res_latency
+    return res_cost, res_counter, res_latency, ec_his
