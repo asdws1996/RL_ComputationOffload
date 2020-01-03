@@ -8,7 +8,7 @@ from onehot import *
 import time
 
 
-iterations = 25000
+iterations = 1000
 change_rounds = 5
 delta = 1.05
 NODE_NUM = 50
@@ -156,8 +156,8 @@ def train(etd_factor, segment=False):
 
         tmp_path = env.path_list[des_node - 40]
 
-        # ec = 0
-        # delay = 0
+        ec = 0
+        delay = 0
         # Tabu = []
         while True:
             present_node = one_hot_decode(observation[4:4 + NODE_NUM])
@@ -175,8 +175,8 @@ def train(etd_factor, segment=False):
                 action = agent.choose_action(observation)   # TODO(Wezi): check the action dimension
             result, ec_, delay_ = env.perceive(observation, action, etd_factor, netUpdateFlag)  # result = [r,s']
             netUpdateFlag = False
-            # ec += ec_
-            # delay += delay_
+            ec += ec_
+            delay += delay_
             agent.store_transition(observation, action, result[0], result[1])
             # print(result[0])
             # if action <= max(node_list):
@@ -185,7 +185,6 @@ def train(etd_factor, segment=False):
             step += 1
             step_counter += 1
             observation = result[1]
-
             if step > 200 and (step % 10 == 0):
                 # DQN学习过程
                 agent.learn()
@@ -194,10 +193,10 @@ def train(etd_factor, segment=False):
                 break
 
             # 保存模型
-            if i % 2000 == 0 and i > 10000:
+            if i % 200 == 0 and i >= 400:
                 agent.saveModel(i)
 
-        if i >= 200 and i % 100 == 0:
+        if i >= 300 and i % 100 == 0:
             res_cost, res_counter, latency, res_ec = evaluation(agent, env, test_task_list, neighbors_list,
                                                                 change_rounds, segment=False)
             with open('record.txt', 'a+') as fp:
@@ -208,8 +207,8 @@ def train(etd_factor, segment=False):
         # if i > 500 and (i % 1000 == 0):
         #     print(agent_list[0].DQN.fetch_eval(np.array(initial_observation)))
 
-        print("the %d time cost %d rounds!" % (i+1, step_counter+1))
-
+        print("the %d time cost %d rounds!" % (i+1, step_counter+1), end='')
+        print("the ec:\t%f\tthe delay:\t%f" % (ec, delay))
     # 记录
     cost_his = [each[0] for each in evaluation_his]
     counter_his = [each[1] for each in evaluation_his]
