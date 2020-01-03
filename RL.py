@@ -16,7 +16,7 @@ class DeepQNetwork:
             learning_rate=0.01,
             reward_decay=0.8,
             e_greedy=0.6,
-            replace_target_iter=100,
+            replace_target_iter=50,
             memory_size=500,
             batch_size=32,
             e_greedy_increment=0.005,
@@ -69,7 +69,7 @@ class DeepQNetwork:
         with tf.variable_scope('eval_net'):
             # c_names(collections_names) are the collections to store variables
             c_names, n_l1, w_initializer, b_initializer = \
-                ['eval_net_params', tf.GraphKeys.GLOBAL_VARIABLES], 10, \
+                ['eval_net_params', tf.GraphKeys.GLOBAL_VARIABLES], 70, \
                 tf.random_normal_initializer(0., 0.3), tf.constant_initializer(0.1)  # config of layers
 
             # first layer. collections is used later when assign to target net
@@ -107,8 +107,6 @@ class DeepQNetwork:
                 b2 = tf.get_variable('b2', [1, self.n_actions], initializer=b_initializer, collections=c_names)
                 self.q_next = tf.matmul(l1, w2) + b2
 
-
-
     def store_transition(self, s, a, r, s_):
         if not hasattr(self, 'memory_counter'):
             self.memory_counter = 0
@@ -143,7 +141,7 @@ class DeepQNetwork:
                 # action = np.random.randint(0, self.n_actions)
         return int(action)
 
-    def learn(self, q_next, batch_memory, neighbor_dict):
+    def learn(self, q_next, batch_memory, neighbor_list):
         # check to replace target parameters
         if self.learn_step_counter % self.replace_target_iter == 0:
             self.sess.run(self.replace_target_op)
@@ -178,13 +176,19 @@ class DeepQNetwork:
         if q_next.shape[0] == batch_memory.shape[0]:
             q_next_max = np.zeros(1)    # 初始化
             for i in range(q_next.shape[0]):
-                node_num = int(batch_memory[i, self.n_features + 7])
-                actions_limits = neighbor_dict[node_num]
-                tmp_max = np.max(np.array([q_next[i, index] for index in actions_limits]))
+                observation_ = batch_memory[i, -self.n_features]                # 取出下一个状态
+                node_num = int(observation_[5])
+                observation_DN = int(np.argwhere(observation_[6:16] == 1))        # 判断下个状态是否抵达终点
+                if node_num == observation_DN:
+                    tmp_max = 0
+                else:
+                    actions_limits = neighbor_list[node_num]
+                    tmp_max = np.max(np.array([q_next[i, index] for index in actions_limits]))
                 q_next_max = np.hstack((q_next_max, tmp_max))
             q_next_max = q_next_max[1:]
         else:
             print("train error! the sample dimension doesn't match the values")
+            return -1
 
         # q_target[batch_index, eval_act_index] = reward + self.gamma * np.max(q_next, axis=1)
         q_target[batch_index, eval_act_index] = reward + self.gamma * q_next_max
@@ -221,7 +225,6 @@ class DeepQNetwork:
         self.epsilon = self.epsilon + self.epsilon_increment if self.epsilon < self.epsilon_max else self.epsilon_max
         self.learn_step_counter += 1
 
-
     def plot_cost(self, ax_):
         # import matplotlib.pyplot as plt
         # plt.plot(np.arange(len(self.cost_his)), self.cost_his)
@@ -232,7 +235,6 @@ class DeepQNetwork:
         ax_.plot(np.arange(len(self.cost_his)), self.cost_his)
         ax_.set_ylabel('Cost')
         ax_.set_xlabel('training steps')
-
 
     def fetch_target(self, observation):
         # to have batch dimension when feed into tf placeholder
@@ -247,7 +249,6 @@ class DeepQNetwork:
 
         eval_values = self.sess.run(self.q_eval, feed_dict={self.s: observation})
         return eval_values
-
 
     def fetch_batch_sample(self):
         if self.memory_counter > self.memory_size:

@@ -1,69 +1,97 @@
-import numpy as np
+from onehot import *
+from CentralTrainDistributedExecution import _init_observation
 
 
-def evaluation(agentlist, environment, tasks, neighbors_list, change_rounds):
+def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment=False):
     net_map = environment.net_map
     net_states = environment.net_states
     node_list = environment.node_list
     cost_his = []
     counter_his = []
+    latency_his = []
+    ec_his = []
     time_counter = 1
     trajcentory = []
     updateFlag = False
     # 记录有效的episode和无效的episode:
-    valid_eps = 0
+    # valid_eps = 0
 
     for i in range(len(tasks)):
         task = tasks[i]
         cost = 0
         counter = 0
+        delay = 0
+        ec = 0
         # task initialization
-        initial_observation = [task[0], task[0], task[1], task[2], task[3], 0]
-        initial_states = []
-        for node in range(len(node_list)):
-            if net_map[0][node] == 0:
-                initial_states.append(-1)
-            else:
-                initial_states.append(net_states[node])
-        initial_observation.extend(initial_states)
-        observation = np.array(initial_observation)
-        tmp_traj = []
+        observation = _init_observation(task, environment)
+        des_node = task[3]['des_node']
+        tmp_path = environment.path_list[des_node - 40]
+        tmp_traj = [[task[3]['src_node'], task[3]['des_node']]]
+        # Tabu = []
 
         while True:
-            if time_counter % change_rounds == 0:
-                updateFlag = True
-            # try process
-            agentNo = int(observation[5])
-            # 存储路径
-            tmp_traj.append(agentNo)
+            present_node = one_hot_decode(observation[4:54])
+            # actions_limit = neighbors_list[present_node]
+            # actions_limit = [each for each in neighbors_list[present_node]]
+            # actions_limit.append(len(node_list))
+            # actions_limit = np.array(actions_limit)
+            if segment:
+                if observation[0] > 0:
+                    if time_counter % change_rounds == 0:
+                        updateFlag = True
+                    # try process
+                    # 存储路径
+                    tmp_traj.append(present_node)
 
-            tmp_agent = agentlist[agentNo]
-            actions_limit = np.array(neighbors_list[agentNo])
-            action = tmp_agent.DQN.choose_action(observation, actions_limit, isEval=True)
-            result = environment.perceive(observation, action, updateFlag)                              # result = [r,s']
+                    action = agent.choose_action(observation)
+                else:
+                    action = tmp_path[present_node]
+            else:
+                if time_counter % change_rounds == 0:
+                    netUpdateFlag = True
+                # try process
+                present_node = one_hot_decode(observation[4:54])
+
+                # 确定该节点的有效邻接节点
+                action = agent.choose_action(observation)
+            #
+            # if action > max(environment.node_list):
+            #     delay_ = 1
+            # else:
+            #     delay_ = observation[2] / environment.trans_v[present_node]
+            #     counter = counter + 1
+
+            result, ec_, delay_ = environment.perceive(observation, action, updateFlag)  # result = [r,s']
+            ec += ec_
+            delay += delay_
             updateFlag = False
             cost += result[0]
             time_counter += 1
-            counter = counter + 1
-            observation = result[1]
 
-            if observation[5] == node_list[-1]:
+            observation = result[1]
+            nn = one_hot_decode(observation[4:54])
+            if nn == des_node:
                 if observation[0] == 0:
-                    tmp_traj.append(observation[5])
-                    valid_eps += 1
-                break
-            if observation[3] < 0:
+                    tmp_traj.append(nn)
+                    cost_his.append(cost)
+                    latency_his.append(delay)
+                    ec_his.append(ec)
                 break
 
         trajcentory.append(tmp_traj)
-        cost_his.append(cost)
+        # cost_his.append(cost)
         counter_his.append(counter)
-#100次的均值
+
     cost_his = np.array(cost_his)
-    res_cost = np.mean(cost_his)
+    res_cost = np.mean(cost_his-50000)
+
+    latency_his = np.array(latency_his)
+    res_latency = np.mean(latency_his)
 
     counter_his = np.array(counter_his)
     res_counter = np.mean(counter_his)
-    res_valid_ratio = valid_eps / len(tasks) * 100
+    # res_valid_ratio = valid_eps / len(tasks) * 100
+    ec_his = np.array(ec_his)
+    res_ec = np.mean(ec_his)
 
-    return res_cost, res_counter, res_valid_ratio
+    return res_cost, res_counter, res_latency, ec_his
