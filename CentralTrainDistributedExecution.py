@@ -19,6 +19,7 @@ TASK_CPT_SCALE = (2, 3)
 DATA_LEN_SCALE = (1000, 2000)
 CPT_SWING_RANGE = 3
 node_list = range(NODE_NUM)
+DPG_bounds = 1
 TAU = 0.01
 # task = (rest computation, total computation)
 
@@ -132,7 +133,7 @@ def train(etd_factor, segment=False):
     #     neighbors_list.append(tmp_)
     # 创建Agent
     # agent = Agent(n_actions=n_action, n_features=n_features)
-    agent = DDPG(NODE_NUM+1, NODE_NUM, n_features, 10, env)
+    agent = DDPG(2, n_features, DPG_bounds, env)
     # task
 
     # 记录评估
@@ -160,40 +161,18 @@ def train(etd_factor, segment=False):
         # Tabu = []
         while True:
             present_node = one_hot_decode(observation[4:4 + NODE_NUM])
-            # actions_limit = [each for each in neighbors_list[present_node]]
-            # actions_limit.append(NODE_NUM)
-            # actions_limit = np.array(actions_limit)
-
             if time_counter % change_rounds == 0:
                 netUpdateFlag = True
 
             if segment:
                 if observation[0] > 0:
-                    # try process
-
-                    # 确定该节点的有效邻接节点
-
-                    # # 在邻接节点中去除已经走过的节点
-                    # Tabu.append(present_node)
-                    # tmp_actions_limit = []
-                    # for act in actions_limit:
-                    #     if act not in Tabu:
-                    #         tmp_actions_limit.append(act)
-                    #
-                    # # 如果无路可走就结束回合
-                    # if tmp_actions_limit:
-                    #     actions_limit = np.array(tmp_actions_limit)
-                    # else:
-                    #     break
-
                     action = agent.choose_action(observation)
                 else:
                     action = tmp_path[present_node]
-
             else:
                 # try process
                 # 确定该节点的有效邻接节点
-                action = agent.choose_action(observation)
+                action = agent.choose_action(observation)   # TODO(Wezi): check the action dimension
             result, ec_, delay_ = env.perceive(observation, action, etd_factor, netUpdateFlag)  # result = [r,s']
             netUpdateFlag = False
             # ec += ec_
@@ -206,7 +185,7 @@ def train(etd_factor, segment=False):
             step += 1
             observation = result[1]
 
-            if step > 50 and (step % 10 == 0):
+            if step > 200 and (step % 10 == 0):
                 # DQN学习过程
                 agent.learn()
 

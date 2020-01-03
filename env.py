@@ -192,9 +192,7 @@ class ENV:
         des_node = one_hot_decode(task_['des_node']) + 40
         tmp_dis = self.d_distance_list[des_node - 40]
         node_ = one_hot_decode(observation[4:54])
-        # node_ = one_hot_decode(observation[5:55])
-        # net_state = observation[4:]
-        next_n = one_hot_decode(action[0]) # action 1 from actor1 has one hot code
+        next_n = one_hot_decode(action[0])  # action 1 from actor1 has one hot code
         offload_delay = action[1]
 
         if updateFlag == True:  # 在确定下一跳节点周围网络状况之前，判断是否改变环境
@@ -202,6 +200,7 @@ class ENV:
         # 更新网络环境
         next_node_net_state = []
         next_node_dis = []
+
         ##################### DQN(enhanced) ############################
         # if action > max(self.node_list):
         #     # 如果停留，则继续卸载
@@ -294,10 +293,23 @@ class ENV:
 
         EC = trans_EC + offload_EC
         delay = offload_delay + trans_delay + prop_delay
-        reward = EC + delay * EC_to_delay_factor
+        reward = -(EC + delay * EC_to_delay_factor)
+        if action == des_node:
+            if task_['res_cpt'] == 0:
+                reward = reward + 50000
+            else:
+                reward = reward - 20000
+
+        for n in self.node_list:
+            if self.net_map[next_n][n] != 0:  # 下一跳节点就是action
+                next_node_net_state.append(self.net_states[n])
+                next_node_dis.append(tmp_dis[n])
+            else:
+                next_node_net_state.append(-1)  # next observation net_state
+                next_node_dis.append(-1)
 
         next_observation = [res_cpt, task_['total_cpt'], L_, task_['profit_ratio']]
-        action_OHT = one_hot_code(len(self.node_list), action)
+        action_OHT = one_hot_code(len(self.node_list), next_n)
         next_observation.extend(action_OHT)
         next_observation.extend(task_['des_node'])
         next_observation.extend(next_node_net_state)
