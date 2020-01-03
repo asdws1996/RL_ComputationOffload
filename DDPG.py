@@ -35,16 +35,15 @@ class DDPG(object):
         self.env = env
         self.node_num = len(env.node_list)
 
-
         self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound,
         self.S = tf.placeholder(tf.float32, [None, s_dim], 's1')
         self.S_ = tf.placeholder(tf.float32, [None, s_dim], 's1_')
         self.S2 = tf.placeholder(tf.float32, [None, s_dim+self.node_num], 's2')
         self.S2_ = tf.placeholder(tf.float32, [None, s_dim+self.node_num], 's2_')
-        self.A1 = tf.placeholder(tf.float32, [None, 1], 'action1')
-        self.A1_ = tf.placeholder(tf.float32, [None, 1], 'action1_')
-        self.A1_prob = tf.placeholder(tf.float32, [None, 1], 'action1_prob')
-        self.A2 = tf.placeholder(tf.float32, [None, 1], 'action2')
+        self.OH_A1 = tf.placeholder(tf.float32, [None, self.node_num], 'OH_action1')
+        self.OH_A1_ = tf.placeholder(tf.float32, [None, self.node_num], 'OH_action1_')
+        self.A1 = tf.placeholder(tf.int32, [None, ], 'action1')
+        self.A1_ = tf.placeholder(tf.int32, [None, ], 'action1_')
         self.R = tf.placeholder(tf.float32, [None, 1], 'r')
 
         with tf.variable_scope('Actor1'):
@@ -59,8 +58,8 @@ class DDPG(object):
             # assign self.a = a in memory when calculating q for td_error,
             # otherwise the self.a is from Actor when updating Actor
 
-            q = self._build_c(self.S, self.A1, self.a2, scope='eval', trainable=True)
-            q_ = self._build_c(self.S_, self.A1_, self.a2_, scope='target', trainable=False)
+            q = self._build_c(self.S, self.OH_A1, self.a2, scope='eval', trainable=True)
+            q_ = self._build_c(self.S_, self.OH_A1_, self.a2_, scope='target', trainable=False)
 
         # networks parameters
         self.a1e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor1/eval')
@@ -82,8 +81,8 @@ class DDPG(object):
             self.ctrain = tf.train.AdamOptimizer(LR_C).minimize(td_error, var_list=self.ce_params)
 
         # log_prob = tf.log(self.A1_prob)
-        log_prob = tf.log(self.a1[0, self.A1])
-        a1_loss = - tf.reduce_mean(log_prob * q)
+        log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.a1, labels=self.A1)
+        a1_loss = tf.reduce_mean(log_prob*q)
         with tf.variable_scope('Actor1/train'):
             self.a1train = tf.train.AdamOptimizer(LR_A).minimize(a1_loss, var_list=self.a1e_params)
 
@@ -107,11 +106,11 @@ class DDPG(object):
         else:
             a1_ald = a1_ald / a1_ald.sum()
             a1 = np.random.choice(action_limits, p=a1_ald)
-        a1 = one_hot_code(self.node_num, a1)
-        a1 = a1[np.newaxis, :]
-        s2 = np.hstack((s, a1))
+        a1_OH = one_hot_code(self.node_num, a1)
+        a1_OH = a1_OH[np.newaxis, :]
+        s2 = np.hstack((s, a1_OH))
         a2 = self.sess.run(self.a2, {self.S2: s2})
-        return a1[0], a2[0]
+        return int(a1), float(a2)
 
     def learn(self):
         # soft target replacement
@@ -130,14 +129,14 @@ class DDPG(object):
         ba2 = bt[:, -self.s_dim - 2: -self.s_dim - 1]
         # 将批量的ba1进行 one-hot编码
         ba1_0 = ba1.ravel()
-        z = np.zeros([BATCH_SIZE, self.node_num])
+        z_ba1 = np.zeros([BATCH_SIZE, self.node_num], dtype=np.int32)
         for i in range(BATCH_SIZE):
-            z[i, ba1_0[i]] = 1
-        bs2 = np.hstack((bs, z))
+            z_ba1[i, int(ba1_0[i])] = 1
+        bs2 = np.hstack((bs, z_ba1))
 
         # Actor 1 training
-        act_FOR_A1 = self.sess.run(self.a2_, {self.S2: bs2})
-        self.sess.run(self.a1train, {self.S: bs, self.A1: ba1, self.a2: act_FOR_A1})
+        act_FOR_A1 = self.sess.run(self.a2_, {self.S2_: bs2})
+        self.sess.run(self.a1train, {self.S: bs, self.A1: ba1.ravel(), self.OH_A1: z_ba1, self.a2: act_FOR_A1})
 
         # Actor 2 training
         act_probs_FOR_A2 = self.sess.run(self.a1_, {self.S_: bs})
@@ -146,19 +145,19 @@ class DDPG(object):
         for index in range(BATCH_SIZE):
             node_tmp = one_hot_decode(bs[index][4:54])
             action_limit = self.env.neighbor_list[node_tmp]
-            tmp_ = np.array([act_probs_FOR_A2[each] for each in action_limit])
+            tmp_ = np.array([act_probs_FOR_A2[index, each] for each in action_limit])
             if 0 in tmp_:
                 a1_tmp = np.random.choice(action_limit)
             else:
                 tmp_ = tmp_ / tmp_.sum()
                 a1_tmp = np.random.choice(action_limit, p=tmp_)
             act_FOR_A2_tmp.append(a1_tmp)
-        act_FOR_A2 = np.array(act_FOR_A2_tmp).ravel()
-        z = np.zeros([BATCH_SIZE, self.node_num])
+        act_FOR_A2 = np.array(act_FOR_A2_tmp)
+        z = np.zeros([BATCH_SIZE, self.node_num], dtype=np.int32)
         for i in range(BATCH_SIZE):
             z[i, act_FOR_A2[i]] = 1
         bs2 = np.hstack((bs, z))
-        self.sess.run(self.a2train, {self.S2: bs2})
+        self.sess.run(self.a2train, {self.S2: bs2, self.OH_A1: z, self.S: bs})
 
         # Critic training
         # a1_probs = self.sess.run(self.a1_, {self.S_: bs_})
@@ -178,7 +177,7 @@ class DDPG(object):
         for index in range(BATCH_SIZE):
             node_tmp = one_hot_decode(bs[index][4:54])
             action_limit = self.env.neighbor_list[node_tmp]
-            tmp_ = np.array([act_probs_FOR_C[each] for each in action_limit])
+            tmp_ = np.array([act_probs_FOR_C[index, each] for each in action_limit])
             if 0 in tmp_:
                 a1_tmp = np.random.choice(action_limit)
             else:
@@ -186,13 +185,12 @@ class DDPG(object):
                 a1_tmp = np.random.choice(action_limit, p=tmp_)
             act_FOR_C_tmp.append(a1_tmp)
         act_FOR_C = np.array(act_FOR_A2_tmp).ravel()
-        z = np.zeros([BATCH_SIZE, self.node_num])
+        z_ba1_ = np.zeros([BATCH_SIZE, self.node_num], dtype=np.int32)
         for i in range(BATCH_SIZE):
-            z[i, act_FOR_C[i]] = 1
-        bs2_ = np.hstack((bs_, z))
-        act_FOR_C = act_FOR_C[:, np.newaxis]
-        self.sess.run(self.ctrain, {self.S: bs, self.A1: ba1, self.a2: ba2, self.R: br,
-                                    self.S_: bs_, self.A1_: act_FOR_C, self.S2_: bs2_})
+            z_ba1_[i, act_FOR_C[i]] = 1
+        bs2_ = np.hstack((bs_, z_ba1_))
+        self.sess.run(self.ctrain, {self.S: bs, self.OH_A1: z_ba1, self.a2: ba2, self.R: br,
+                                    self.S_: bs_, self.OH_A1_: z_ba1_, self.S2_: bs2_})
 
     def store_transition(self, s, a, r, s_):
         transition = np.hstack((s, a, [r], s_))
@@ -222,9 +220,13 @@ class DDPG(object):
     def _build_c(self, s, a1, a2, scope, trainable):
         with tf.variable_scope(scope):
             n_l1 = 30
-            # a2 = a2[:, np.newaxis]
-            # a = np.hstack((a1, a2))
-            a1 = one_hot_code(self.node_num, a1)
+            # # a2 = a2[:, np.newaxis]
+            # # a = np.hstack((a1, a2))
+            # # a1 = one_hot_code(self.node_num, a1)
+            # z = np.zeros([a1.shape[0], self.node_num])
+            # for i in range(a1.shape[0]):
+            #     z[i, a1[i]] = 1
+            # a1_one_hot = z
             w1_a1 = tf.get_variable('w1_a1', [self.node_num, n_l1], trainable=trainable)
             w1_a2 = tf.get_variable('w1_a2', [1, n_l1], trainable=trainable)
             w1_s = tf.get_variable('w1_s', [self.s_dim, n_l1], trainable=trainable)

@@ -192,7 +192,7 @@ class ENV:
         des_node = one_hot_decode(task_['des_node']) + 40
         tmp_dis = self.d_distance_list[des_node - 40]
         node_ = one_hot_decode(observation[4:54])
-        next_n = one_hot_decode(action[0])  # action 1 from actor1 has one hot code
+        next_n = action[0]  # action 1 from actor1 has one hot code
         offload_delay = action[1]
 
         if updateFlag == True:  # 在确定下一跳节点周围网络状况之前，判断是否改变环境

@@ -50,11 +50,8 @@ def evaluation(agent, environment, tasks, neighbors_list, change_rounds, segment
                 if time_counter % change_rounds == 0:
                     netUpdateFlag = True
                 # try process
-                present_node = one_hot_decode(observation[4:54])
-
                 # 确定该节点的有效邻接节点
                 action = agent.choose_action(observation)
-            #
             # if action > max(environment.node_list):
             #     delay_ = 1
             # else:

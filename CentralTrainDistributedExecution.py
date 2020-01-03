@@ -183,6 +183,7 @@ def train(etd_factor, segment=False):
             #     step_counter += 1
             time_counter += 1
             step += 1
+            step_counter += 1
             observation = result[1]
 
             if step > 200 and (step % 10 == 0):
